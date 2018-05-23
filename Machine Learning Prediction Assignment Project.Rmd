@@ -1,0 +1,133 @@
+---
+title: "Machine Learning Prediction Assignment"
+author: "Shutong Li"
+date: "2018Äê5ÔÂ20ÈÕ"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+In this project, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. This is the "classe" variable in the training dataset.  
+
+The training data are from:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv  
+The test data are from:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+We'll try three different prediction models: Random Forest, Decision Tree and Generalized Boosted Model. By comparing their accuracy, we choose Random Forest model as our prediction model, and apply the trained model to test dataset.
+
+## Loading Data and Exploratory Data Analysis
+At first, let's download the training and test dataset.    
+```{r}
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainData <- read.csv(trainUrl, na.strings=c("NA","#DIV/0!",""))
+testData <- read.csv(testUrl, na.strings=c("NA","#DIV/0!",""))
+```  
+After exploring the data, we found that some variables of trainData and testData have many NA values, and some factor variables can't help to predict the exercise manner, like timestamp. So we need to cleanup the data first.   
+```{r}
+# find NA data
+sapply(trainData, function(x) sum(is.na(x)))
+sapply(testData, function(x) sum(is.na(x)))
+
+# remove NA data from Train & Test data sets
+trainDataFactors <- colnames(trainData)[colSums(is.na(trainData)) == 0]
+testDataFactors <- colnames(testData)[colSums(is.na(testData)) == 0]
+
+# remove NA data from testing set
+allFactors <- union(trainDataFactors, testDataFactors)
+trainData <- trainData[, names(trainData) %in% allFactors]
+testData <- testData[, names(testData) %in% allFactors]
+
+# remove variables which are useless for the prediction
+trainData <- trainData[, -c(1:5)]
+testData <- testData[, -c(1:5)]
+
+# change a factor variable 'new_window' to integer class
+trainData$new_window <- as.integer(trainData$new_window)
+testData$new_window <- as.integer(testData$new_window)
+```  
+## Create Data Partitions
+
+```{r}
+# create Training set and Validation set
+library(caret)
+inTrain  <- createDataPartition(y=trainData$classe, p=0.7, list=FALSE)
+training <- trainData[inTrain, ]
+testing  <- trainData[-inTrain, ]
+dim(training)
+dim(testing)
+dim(testData)
+```  
+ 
+## Corrolation Analysis
+```{r}
+library(corrplot)
+corMatrix <- cor(training[, -55])
+corrplot(corMatrix, order = "FPC", method = "circle", type = "lower", tl.cex = 0.7, tl.col = rgb(0, 0, 0))
+```  
+   
+Most of the variables are not corrolated, so we'll not use PCA analysis, and we'll use all variables to predict "classe".
+
+## Create Prediction Models
+We'll train 3 prediction models with 'training' partition, and then choose the best one which has the highest accuracy when applied to the 'testing' partition to predict 20 different test cases in testData. The 3 prediction models are: Random Forests, Decision Tree and Generalized Boosted Model. We'll create Confusion Matrix for each model to compare their accuracies.  
+
+### Random Forests Model
+```{r}
+set.seed(503)
+require(randomForest)
+library(randomForest)
+modFitRF <- randomForest(classe ~ ., data = training, method = "rf", importance = T, 
+                         trControl = trainControl(method = "cv", classProbs=TRUE, savePredictions=TRUE,
+                                                  allowParallel=TRUE,  number = 10))
+modFitRF
+```   
+
+### Decision Tree Model
+```{r}
+set.seed(503)
+modFitDT <- train(classe ~ ., data=training, method="rpart")
+modFitDT$finalModel
+```   
+
+### Generalized Boosted Model
+```{r}
+set.seed(503)
+trControlGBM <- trainControl(method = "cv", number = 5)
+modFitGBM  <- train(classe ~ ., data=training, method = "gbm",
+                    trControl = trControlGBM, verbose = FALSE)
+modFitGBM$finalModel
+```   
+## Confusion Matrixes
+Now let's create 3 confusion matrixes to compare their accuracies.
+### Confusion Matix of Random Forests Model
+```{r}
+predictRF <- predict(modFitRF, testing)
+confusionMatrixRF <- confusionMatrix(predictRF, testing$classe)
+confusionMatrixRF
+```  
+### Confusion Matix of Decision Tree Model
+```{r}
+predictDT <- predict(modFitDT, testing)
+confusionMatrixDT <- confusionMatrix(predictDT, testing$classe)
+confusionMatrixDT
+```  
+### Confusion Matix of Generalized Boosted Model
+```{r}
+predictGBM <- predict(modFitGBM, testing)
+confusionMatrixGBM <- confusionMatrix(predictGBM, testing$classe)
+confusionMatrixGBM
+```  
+Clearly, Random Forest model and Generalized Boosted Model can achieve almost the same accuracy, but Random Forest has slightly higer accuracy. So we'll apply Random Forest to Test Data.  
+
+## Applying the Random Forest Model to Test Data Set
+  
+```{r}
+predictTEST <- predict(modFitRF, testData)
+predictTEST
+```
